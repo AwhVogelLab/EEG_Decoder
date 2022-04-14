@@ -10,7 +10,7 @@ import itertools
 from copy import deepcopy
 import scipy.stats as sista
 
-from sklearn.model_selection import ShuffleSplit
+from sklearn.model_selection import ShuffleSplit, train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix
 from sklearn.linear_model import LogisticRegression
@@ -477,7 +477,7 @@ class Wrangler:
         for self.ielec, electrode_subset in enumerate(self.electrode_subset_list):
             yield self.select_electrodes(xdata_all, electrode_subset), ydata_all
 
-    def train_test_split(self, xdata, ydata, return_idx=False):
+    def split_data(self, xdata, ydata, return_idx=False):
         """
         returns xtrain and xtest data and respective labels
         """
@@ -529,21 +529,18 @@ class Wrangler:
 
                 yield X_train, X_test
 
-    def train_test_custom_split(self, xdata_train, xdata_test, ydata_train, ydata_test):
+    def train_test_custom_split(self, xdata_train, xdata_test, ydata_train, ydata_test, test_size=.1):
         '''
         Takes in train and test data and yields portion of each for purposes of cross-validation.
         Useful if you want data to always be in train, and other data to always be in test.
         e.g. train on color and test on orientation data. 
         '''
-        cross_val_test = StratifiedShuffleSplit(n_splits=1, test_size=.25)
         self.ifold = 0
         for train_index, _ in self.cross_val.split(xdata_train, ydata_train):
             X_train_all, y_train = xdata_train[train_index], ydata_train[train_index].astype(
                 int)
 
-            for _, test_index in cross_val_test.split(xdata_test, ydata_test):
-                X_test_all, y_test = xdata_test[test_index], ydata_test[test_index].astype(
-                    int)
+            X_test_all, y_test = train_test_split(xdata_test, ydata_test, test_size = test_size)
 
             yield X_train_all, X_test_all, y_train, y_test
             self.ifold += 1
