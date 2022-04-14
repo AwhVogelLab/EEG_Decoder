@@ -4,28 +4,28 @@ This is a (hopefully) flexible package for decoding epoched EEG data in Python. 
 
 ## eeg_decoder.py
 
-### Experiment Class
+### `Experiment`
 
 Organizes and loads in EEG, trial labels, behavior, eyetracking, and session data. 
 
 [TO DO: Function explanations.]
 
-### Experiment_Syncher Class
+### `Experiment_Syncher`
 
 Synchronizes data between different experiments. Particularly useful for participants who completed multiple sessions or experiments.
 
-### Wrangler Class
+### `Wrangler` 
 
 Data processing and cross-validation.
 
-### Classifier
+### `Classifier`
 
 Classification and storing of classification outputs.
 
-### Interpreter
+### `Interpreter`
 
 Visualization and statistical testing.
 
-### ERP
+### `ERP`
 
 Visualization of EEG data.
