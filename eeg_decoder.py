@@ -19,7 +19,15 @@ from statsmodels.stats.multitest import multipletests
 
 class Experiment:
     def __init__(self, experiment_name, data_dir, info_from_file=True, test=False, info_variable_names=['unique_id', 'chan_labels', 'chan_x', 'chan_y', 'chan_z', 'sampling_rate', 'times']):
+        """Organizes and loads in EEG, trial labels, behavior, eyetracking, and session data.
 
+        Keyword arguments:
+        experiment_name -- name of experiment
+        data_dir -- directory of data files
+        info_from_file -- pull info from 0th info file in data_dir (default True)
+        test -- only use first 3 subjects' data (default False)
+        info_variable_names -- names of variables to pull from info file
+        """
         self.experiment_name = experiment_name
         self.data_dir = Path(data_dir)
 
@@ -41,6 +49,9 @@ class Experiment:
     def load_eeg(self, isub):
         """
         loads xdata (eeg data) and ydata (trial labels) from .mat
+
+        Keyword arguments:
+        isub -- index of subject to load
         """
         subj_mat = sio.loadmat(
             self.xdata_files[isub], variable_names=['xdata'])
@@ -53,6 +64,9 @@ class Experiment:
     def load_ydata(self, isub):
         """
         loads ydata (trial labels) from .mat
+
+        Keyword arguments:
+        isub -- index of subject to load
         """
         subj_mat = sio.loadmat(
             self.ydata_files[isub], variable_names=['ydata'])
@@ -64,7 +78,9 @@ class Experiment:
         """
         returns behavior from csv as dictionary
 
-        remove_artifact_trials (bool): remove all behavior trials that were excluded from EEG data due to artifacts
+        Keyword arguments:
+        isub -- index of subject to load
+        remove_artifact_trials -- remove all behavior trials that were excluded from EEG data due to artifacts
         """
         if not self.behavior_files:
             self.behavior_files = list(self.data_dir.glob('*.csv'))
@@ -82,10 +98,12 @@ class Experiment:
 
     def load_artifact_idx(self, isub):
         """
-        returns artifact index from EEG artifact rejection
+        returns artifact index from EEG artifact rejection. useful for removing behavior trials not included in EEG data.
 
-        useful for removing behavior trials not included in EEG data
+        Keyword arguments:
+        isub -- index of subject to load
         """
+
         if not self.artifact_idx_files:
             self.artifact_idx_files = list(
                 self.data_dir.glob('*artifact_idx*.mat'))
@@ -98,6 +116,10 @@ class Experiment:
     def load_info(self, isub, variable_names=['unique_id', 'chan_labels', 'chan_x', 'chan_y', 'chan_z', 'sampling_rate', 'times']):
         """ 
         loads info file that contains data about EEG file and subject
+
+        Keyword arguments:
+        isub -- index of subject to load
+        variable_names -- names of variables to pull from info file
         """
         if not self.info_files:
             self.info_files = list(self.data_dir.glob('*info*.mat'))
@@ -118,6 +140,15 @@ class Experiment_Syncer:
         train_group,
         get_matched_data=True
     ):
+        '''
+        Synchronizes subject data across multiple experiments.
+
+        Keyword variables:
+        experiments -- Experiments objects to be synced
+        wrangler -- Wrangler object to be used
+        train_group -- which experiments to be used in the training set
+        get_matched_data -- only use subjects who appear in both experiments (default True)
+        '''
         self.experiments = experiments
         self.wrangler = wrangler
         self.train_group = train_group
@@ -187,6 +218,13 @@ class Experiment_Syncer:
         self.nsub = len(self.all_ids)
 
     def load_eeg(self, sub):
+        """
+        loads xdata (eeg data) and ydata (trial labels) of every experiment from .mat 
+
+        Keyword arguments:
+        sub -- unique ID of subject to load
+        """
+
         xdata = dict.fromkeys(self.experiment_names)
         ydata = dict.fromkeys(self.experiment_names)
         for exp in self.experiments:
@@ -199,6 +237,12 @@ class Experiment_Syncer:
         return xdata, ydata
 
     def load_behavior(self, sub):
+        """
+        returns behavior from csv as dictionary
+
+        Keyword arguments:
+        sub -- unique ID of subject to load
+        """
         beh = dict.fromkeys(self.experiment_names)
         for exp in self.experiments:
             if self.id_dict[sub][exp.experiment_name] is not None:
@@ -209,6 +253,13 @@ class Experiment_Syncer:
         return beh
 
     def select_labels(self, xdata, ydata):
+        """
+        includes labels only wanted for decoding. returns xdata and ydata with unwanted labels removed.
+
+        Keyword arguments:
+        xdata: eeg data, shape[electrodes,timepoints,trials]
+        ydata: labels, shape[trials]
+        """
         for exp_name in xdata.keys():
             xdata[exp_name], ydata[exp_name] = self.wrangler.select_labels(
                 xdata[exp_name], ydata[exp_name])
@@ -217,6 +268,10 @@ class Experiment_Syncer:
     def group_labels(self, xdata, ydata):
         '''
         groups classes based on group_dict, removes not-included classes
+
+        Keyword arguments:
+        xdata -- eeg data, shape[electrodes,timepoints,trials]
+        ydata -- labels, shape[trials]
         '''
         for exp_name in xdata.keys():
             xdata[exp_name], ydata[exp_name] = self.wrangler.group_labels(
@@ -226,6 +281,10 @@ class Experiment_Syncer:
     def balance_labels(self, xdata, ydata):
         '''
         balances number of class instances
+
+        Keyword arguments:
+        xdata -- eeg data, shape[electrodes,timepoints,trials]
+        ydata -- labels, shape[trials]
         '''
         for exp_name in xdata.keys():
             xdata[exp_name], ydata[exp_name] = self.wrangler.balance_labels(
@@ -235,6 +294,10 @@ class Experiment_Syncer:
     def average_trials(self, xdata, ydata):
         '''
         bins trials based on trial_bin_size
+
+        Keyword arguments:
+        xdata -- eeg data, shape[electrodes,timepoints,trials]
+        ydata -- labels, shape[trials]
         '''
         for exp_name in xdata.keys():
             xdata[exp_name], ydata[exp_name] = self.wrangler.average_trials(
@@ -244,6 +307,12 @@ class Experiment_Syncer:
     def setup_data(self, xdata, ydata, labels=False, group_dict=False):
         '''
         does basic data manipulation using other functions.
+
+        Keyword arguments:
+        xdata -- eeg data, shape[electrodes,timepoints,trials]
+        ydata -- labels, shape[trials]
+        labels -- use select_labels function (default False)
+        group_dict -- use group.labels function (default False)
         '''
         if labels:
             xdata, ydata = self.select_labels(xdata, ydata)
@@ -256,6 +325,10 @@ class Experiment_Syncer:
     def pairwise(self, xdata_all, ydata_all):
         '''
         When using group_dict_list (e.g. 1vs2 then 2vs4), yields data with only those classes.
+
+        Keyword arguments:
+        xdata_all -- eeg data, shape[electrodes,timepoints,trials]
+        ydata_all -- labels, shape[trials]
         '''
 
         for self.wrangler.iss, ss in enumerate(self.wrangler.group_dict_list):
@@ -271,6 +344,10 @@ class Experiment_Syncer:
     def group_data(self, xdata, ydata):
         '''
         groups data into train and test groups based on self.train_group
+
+        Keyword arguments:
+        xdata -- eeg data, shape[electrodes,timepoints,trials]
+        ydata -- labels, shape[trials]
         '''
         xdata_train, xdata_test = None, None
 
@@ -308,7 +385,22 @@ class Wrangler:
                  labels=None,
                  electrodes=None,
                  electrode_subset_list=None):
+        """
+        Handles data processing and cross-validation.
 
+        Keyword arguments:
+        samples -- timepoints (in ms) of EEG epochs
+        time_window -- window size for averaging
+        time_step -- window step for averaging
+        trial_bin_size -- number of trials per trial bin
+        n_splits -- number of folds in cross-validation procedure
+        group_dict -- trial labels to be grouped together (default None)
+        group_dict_list -- list of group_dict for pairwise decoding (default None) 
+        test_size -- percent of trials to test (default 0.1)
+        labels -- labels to be included in decoding (default None)
+        electrodes -- names of electrodes in EEG data (default None)
+        electrode_subset_list -- which electrodes to include in decoding (default None)
+        """
         self.samples = samples
         self.sample_step = samples[1]-samples[0]
         self.time_window = time_window
@@ -343,12 +435,12 @@ class Wrangler:
 
     def select_labels(self, xdata, ydata, return_idx=True):
         """
-        includes labels only wanted for decoding
+        includes labels only wanted for decoding. returns xdata and ydata with unwanted labels removed.
 
-        returns xdata and ydata with unwanted labels removed
-
-        xdata: eeg data, shape[electrodes,timepoints,trials]
-        ydata: labels, shape[trials]
+        Keyword arguments:
+        xdata -- eeg data, shape[electrodes,timepoints,trials]
+        ydata -- labels, shape[trials]
+        return_idx -- return index of trials selected
         """
 
         label_idx = np.isin(ydata, self.labels)
@@ -365,8 +457,10 @@ class Wrangler:
         groups classes based on group dict. Also excludes classes not included in group_dict.
         If one of your class labels is 9999, change empty_val to something your class label isn't.
 
-        xdata: eeg data, shape[electrodes,timepoints,trials]
-        ydata: labels, shape[trials]
+        Keyword arguments:
+        xdata -- eeg data, shape[electrodes,timepoints,trials]
+        ydata -- labels, shape[trials]
+        empty_val -- pre-allocate empty array with this value.
         """
 
         xdata_new = np.ones(xdata.shape)*empty_val
@@ -384,6 +478,10 @@ class Wrangler:
     def pairwise(self, xdata_all, ydata_all):
         '''
         When using group_dict_list (e.g. 1vs2 then 2vs4), yields data with only those classes.
+
+        Keyword arguments:
+        xdata_all -- eeg data, shape[electrodes,timepoints,trials]
+        ydata_all -- labels, shape[trials]
         '''
         for self.iss, ss in enumerate(self.group_dict_list):
             xdata, ydata = deepcopy(xdata_all), deepcopy(ydata_all)
@@ -393,6 +491,11 @@ class Wrangler:
     def balance_labels(self, xdata, ydata, downsamp=None):
         '''
         balances number of class instances
+
+        Keyword arguments:
+        xdata -- eeg data, shape[electrodes,timepoints,trials]
+        ydata -- labels, shape[trials]
+        downsamp -- number of trials to downsample to (default None). If None, downsamples to lowest count.
         '''
         unique_labels, counts_labels = np.unique(ydata, return_counts=True)
         if downsamp is None:
@@ -410,6 +513,10 @@ class Wrangler:
     def bin_trials(self, xdata, ydata):
         '''
         bins trials based on trial_bin_size
+
+        Keyword arguments:
+        xdata -- eeg data, shape[electrodes,timepoints,trials]
+        ydata -- labels, shape[trials]
         '''
         if self.trial_bin_size:
             unique_labels, counts_labels = np.unique(ydata, return_counts=True)
@@ -434,6 +541,10 @@ class Wrangler:
     def setup_data(self, xdata, ydata):
         '''
         does basic data manipulation using other functions. Pretty much depracated.
+
+        Keyword arguments:
+        xdata -- eeg data, shape[electrodes,timepoints,trials]
+        ydata -- labels, shape[trials]
         '''
         if self.group_dict:
             xdata, ydata = self.group_labels(xdata, ydata)
@@ -446,6 +557,12 @@ class Wrangler:
     def bin_and_balance_data(self, X_train_all, X_test_all, y_train, y_test): 
         '''
         helper function than does trial binning and balances data
+
+        Keyword arguments:
+        X_train_all -- EEG data to be used for training
+        X_test_all -- EEG data to be used for testing
+        y_train -- trial labels for training data
+        y_test -- trial labels for testing data
         '''
         
         X_train_all, y_train = self.bin_trials(X_train_all, y_train)
@@ -459,6 +576,10 @@ class Wrangler:
     def select_electrodes(self, xdata, electrode_subset=None):
         '''
         removes electrodes not included in electrode_subset.
+
+        Keyword arguments:
+        xdata -- eeg data, shape[electrodes,timepoints,trials]
+        electrode_subset -- electrode subset to select for use in classification (default None)
         '''
         if electrode_subset is not None:
             # Create index for electrodes to include in plot
@@ -470,16 +591,26 @@ class Wrangler:
 
         return xdata
         
-    def roll_over_electrodes(self, xdata_all, ydata_all, electrode_subset_list=None, electrode_idx_list=None):
+    def roll_over_electrodes(self, xdata_all, ydata_all):
         '''
         yields data with electrodes not in electrode subset, iterating over electrode_subset_list.
+        
+        Keyword arguments:
+        xdata_all -- eeg data, shape[electrodes,timepoints,trials]
+        ydata_all -- labels, shape[trials]
         '''
+
         for self.ielec, electrode_subset in enumerate(self.electrode_subset_list):
             yield self.select_electrodes(xdata_all, electrode_subset), ydata_all
 
     def split_data(self, xdata, ydata, return_idx=False):
         """
         returns xtrain and xtest data and respective labels
+
+        Keyword arguments:
+        xdata -- eeg data, shape[electrodes,timepoints,trials]
+        ydata -- labels, shape[trials]
+        return_idx -- return index used to select test data (default False)
         """
         self.ifold = 0
         for train_index, test_index in self.cross_val.split(xdata[:, 0, 0], ydata):
@@ -497,6 +628,10 @@ class Wrangler:
     def roll_over_time(self, X_train_all, X_test_all=None):
         """
         returns one timepoint of EEG trial at a time
+
+        Keyword arguments:
+        X_train_all -- all EEG data for training
+        X_test_all -- all EEG data for testing (default None)
         """
         for self.itime, time in enumerate(self.t):
             time_window_idx = (self.samples >= time) & (
@@ -513,7 +648,10 @@ class Wrangler:
     def roll_over_time_temp_gen(self, X_train_all, X_test_all):
         '''
         yield every other timepoint for each timepoint. Used for temporal generalizability plots.
-        Not used in analyses for paper.
+
+        Keyword arguments:
+        X_train_all -- all EEG data for training
+        X_test_all -- all EEG data for testing (default None)
         '''
 
         for self.itime1, time1 in enumerate(self.t):
@@ -534,6 +672,12 @@ class Wrangler:
         Takes in train and test data and yields portion of each for purposes of cross-validation.
         Useful if you want data to always be in train, and other data to always be in test.
         e.g. train on color and test on orientation data. 
+
+        Keyword arguments:
+        xdata_train -- all EEG data for training
+        xdata_test -- all EEG data for testing 
+        ydata_train -- trial labels for training data
+        ydata_test -- trial labels for test data
         '''
         self.ifold = 0
         for train_index, _ in self.cross_val.split(xdata_train, ydata_train):
@@ -549,6 +693,15 @@ class Wrangler:
 class Classification:
 
     def __init__(self, wrangl, nsub, num_labels=None, classifier=None):
+        """
+        Classification and storing of classification outputs.
+
+        Keyword arguments:
+        wrangl -- Wrangler object that was used with data
+        nsub -- number of subjects in decoding
+        num_labels -- number of unique trial labels (default None)
+        classifier -- classifier object for decoding (default None). If none, defaults to sklearn's Logistic Regression.
+        """
         self.wrangl = wrangl
         self.n_splits = wrangl.n_splits
         self.t = wrangl.t
@@ -576,10 +729,12 @@ class Classification:
 
     def standardize(self, X_train, X_test):
         """
-        z-score each electrode across trials at this time point
-
-        returns standardized train and test data 
+        z-score each electrode across trials at this time point. returns standardized train and test data.
         Note: this fits and transforms train data, then transforms test data with mean and std of train data!!!
+
+        Keyword arguments:
+        X_train -- time slice of EEG data for training
+        X_test -- time slice of EEG data for testing 
         """
 
         # Fit scaler to X_train and transform X_train
@@ -591,6 +746,14 @@ class Classification:
     def decode(self, X_train, X_test, y_train, y_test, y_test_shuffle, isub):
         '''
         does actual training and testing of classifier after standardizing the data. Also does shuffled testing and confusion matrix.
+
+        Keyword arguments:
+        X_train -- time slice of EEG data for training
+        X_test -- time slice of EEG data for testing 
+        y_train -- trial labels for training data
+        y_test -- trial labels for test data
+        y_test_shuffle -- shuffled trial labels for shuffle test check
+        isub -- index of subject being trained/tested
         '''
         ifold = self.wrangl.ifold
         itime = self.wrangl.itime
@@ -609,6 +772,14 @@ class Classification:
         '''
         Same functionality as decode. But results matrices are different shape.
         Used when using group_dict_list and rolling over multiple sets of classes (e.g. 1vs2 and 2vs4)
+
+        Keyword arguments:
+        X_train -- time slice of EEG data for training
+        X_test -- time slice of EEG data for testing 
+        y_train -- trial labels for training data
+        y_test -- trial labels for test data
+        y_test_shuffle -- shuffled trial labels for shuffle test check
+        isub -- index of subject being trained/tested
         '''
 
         ifold = self.wrangl.ifold
@@ -629,6 +800,13 @@ class Classification:
     def decode_temp_gen(self, X_train, X_test, y_train, y_test, isub):
         '''
         Same functionality as decode. But results matrices are different shape.
+
+        Keyword arguments:
+        X_train -- time slice of EEG data for training
+        X_test -- time slice of EEG data for testing 
+        y_train -- trial labels for training data
+        y_test -- trial labels for test data
+        isub -- index of subject being trained/tested
         '''
         ifold = self.wrangl.ifold
         itime1 = self.wrangl.itime1
@@ -648,6 +826,13 @@ class Classification:
     def decode_electrode_subset(self, X_train, X_test, y_train, y_test, isub):
         '''
         Same functionality as decode. But results matrices are different shape.
+
+        Keyword arguments:
+        X_train -- time slice of EEG data for training
+        X_test -- time slice of EEG data for testing 
+        y_train -- trial labels for training data
+        y_test -- trial labels for test data
+        isub -- index of subject being trained/tested
         '''
 
         ifold = self.wrangl.ifold
@@ -668,8 +853,20 @@ class Classification:
 
 class Interpreter:
     def __init__(
-        self, clfr=None, subtitle='', output_dir=None, experiment_name=''
-    ):
+        self, 
+        clfr=None, 
+        subtitle='', 
+        output_dir=None, 
+        experiment_name=''):
+        """
+        Visualization and statistical testing.
+
+        Keyword arguments:
+        clfr -- Classification object to be interpreted
+        subtitle -- subtitle for saving classification results
+        output_dir -- directory to output saved results
+        experiment_name -- name of experiment
+        """
         if clfr is not None:
             self.clfr = clfr
             self.t = clfr.wrangl.t
@@ -698,6 +895,13 @@ class Interpreter:
         self.fig_dir = self.output_dir / 'figures'
 
     def save_results(self, filename=None, additional_values=None):
+        """
+        Saves results of classification.
+
+        Keyword arguments:
+        filename -- name of file to store results
+        additional_values -- additional variables to save
+        """
         values = ['t', 'time_window', 'time_step', 'trial_bin_size',
                   'n_splits', 'labels', 'electrodes', 'acc', 'acc_shuff', 'conf_mat']
         if additional_values:
@@ -708,22 +912,30 @@ class Interpreter:
         for value in values:
             results_dict[value] = self.__dict__[value]
 
-        filename = self.subtitle + '_' + self.timestr + '.pickle'
+        if filename is None:
+            filename = self.subtitle + '_' + self.timestr + '.pickle'
+        else:
+            filename = filename + '.pickle'
 
         file_to_save = self.output_dir / filename
 
         with open(file_to_save, 'wb') as fp:
             pickle.dump(results_dict, fp)
 
-    def load_results(self,
-                     filename=None
-                     ):
+    def load_results(self, filename=None):
+        """
+        Loads results of classification.
+
+        Keyword arguments:
+        filename -- name of file to be loaded
+        """
 
         if filename is None:
             list_of_files = self.output_dir.glob('*.pickle')
             file_to_open = max(list_of_files, key=os.path.getctime)
             print('No filename provided. Loading most recent results.')
         else:
+            filename = filename + '.pickle'
             file_to_open = self.output_dir / filename
 
         with open(file_to_open, 'rb') as fp:
@@ -732,6 +944,14 @@ class Interpreter:
         self.__dict__.update(results)
 
     def savefig(self, subtitle='', file_format=['.pdf', '.png'], save=True):
+        """
+        saves figure as pdf and png in figure directory.
+
+        Keyword arguments:
+        subtitle -- subtitle to be included in figure (default '')
+        file_format -- list of formats to save figure as (deafult pdf and png)
+        save -- if you want to save (default True)
+        """
         if save:
             for file in file_format:
                 filename = self.subtitle + subtitle + file
