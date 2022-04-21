@@ -291,7 +291,7 @@ class Experiment_Syncer:
                 xdata[exp_name], ydata[exp_name])
         return xdata, ydata
 
-    def average_trials(self, xdata, ydata):
+    def bin_trials(self, xdata, ydata):
         '''
         bins trials based on trial_bin_size
 
@@ -306,7 +306,7 @@ class Experiment_Syncer:
 
     def setup_data(self, xdata, ydata, labels=False, group_dict=False):
         '''
-        does basic data manipulation using other functions.
+        does basic data manipulation using other functions. Deprecated.
 
         Keyword arguments:
         xdata -- eeg data, shape[electrodes,timepoints,trials]
@@ -319,7 +319,7 @@ class Experiment_Syncer:
         if group_dict:
             xdata, ydata = self.group_labels(xdata, ydata)
         xdata, ydata = self.balance_labels(xdata, ydata)
-        xdata, ydata = self.average_trials(xdata, ydata)
+        xdata, ydata = self.bin_trials(xdata, ydata)
         return xdata, ydata
 
     def pairwise(self, xdata_all, ydata_all):
@@ -684,7 +684,7 @@ class Wrangler:
             X_train_all, y_train = xdata_train[train_index], ydata_train[train_index].astype(
                 int)
 
-            X_test_all, y_test = train_test_split(xdata_test, ydata_test, test_size = test_size)
+            _, X_test_all, _, y_test = train_test_split(xdata_test, ydata_test, test_size = test_size)
 
             yield X_train_all, X_test_all, y_train, y_test
             self.ifold += 1
