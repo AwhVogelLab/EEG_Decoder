@@ -31,8 +31,8 @@ class Experiment:
         self.experiment_name = experiment_name
         self.data_dir = Path(data_dir)
 
-        self.xdata_files = list(self.data_dir.glob('*xdata*.mat'))
-        self.ydata_files = list(self.data_dir.glob('*ydata*.mat'))
+        self.xdata_files = sorted(list(self.data_dir.glob('*xdata*.mat')))
+        self.ydata_files = sorted(list(self.data_dir.glob('*ydata*.mat')))
         if test:
             self.xdata_files = self.xdata_files[0:3]
             self.ydata_files = self.ydata_files[0:3]
@@ -83,7 +83,7 @@ class Experiment:
         remove_artifact_trials -- remove all behavior trials that were excluded from EEG data due to artifacts
         """
         if not self.behavior_files:
-            self.behavior_files = list(self.data_dir.glob('*.csv'))
+            self.behavior_files = sorted(list(self.data_dir.glob('*.csv')))
         behavior = pd.read_csv(self.behavior_files[isub]).to_dict('list')
 
         if remove_artifact_trials:
@@ -105,8 +105,8 @@ class Experiment:
         """
 
         if not self.artifact_idx_files:
-            self.artifact_idx_files = list(
-                self.data_dir.glob('*artifact_idx*.mat'))
+            self.artifact_idx_files = sorted(list(
+                self.data_dir.glob('*artifact_idx*.mat')))
 
         artifact_idx = np.squeeze(sio.loadmat(
             self.artifact_idx_files[isub])['artifact_idx'] == 1)
@@ -122,7 +122,7 @@ class Experiment:
         variable_names -- names of variables to pull from info file
         """
         if not self.info_files:
-            self.info_files = list(self.data_dir.glob('*info*.mat'))
+            self.info_files = sorted(list(self.data_dir.glob('*info*.mat')))
 
         info_file = sio.loadmat(
             self.info_files[isub], variable_names=variable_names)
@@ -931,7 +931,7 @@ class Interpreter:
         """
 
         if filename is None:
-            list_of_files = self.output_dir.glob('*.pickle')
+            list_of_files = sorted(self.output_dir.glob('*.pickle'))
             file_to_open = max(list_of_files, key=os.path.getctime)
             print('No filename provided. Loading most recent results.')
         else:
