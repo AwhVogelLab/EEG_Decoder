@@ -5,6 +5,7 @@ import pandas as pd
 import pickle
 import os
 import matplotlib.pyplot as plt
+import seaborn as sns
 import time
 import itertools
 from copy import deepcopy
@@ -1226,49 +1227,52 @@ class Interpreter:
 
         self.savefig('acc'+subtitle, save=savefig)
         plt.show()
-
-    def plot_conf_mat(self, subtitle='', color_map=plt.cm.RdGy_r, lower=0, upper=1, time_idx=None, savefig=False, subplot=111):
+        
+    def plot_confusion_matrix(self, subtitle='', labels=None, earliest_t=200, time_idx=None, lower=0, upper=1, chance=None, savefig=False, subplot=111, color_map=plt.cm.RdGy_r):
         """
         plots the confusion matrix for the classifier
 
         Input:
         self.conf_mat of shape [subjects,timepoints,folds,setsizeA,setsizeB]
         """
+        # Use only relevant time points
         if time_idx is None:
-            time_idx = self.t > 200
+            time_idx = self.t > earliest_t
         cm = np.mean(np.mean(np.mean(self.conf_mat[:, time_idx], 2), 1), 0)
 
         # Normalize
         cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        
+        # Get labels and chance level, if necessary
+        if labels is None:
+            labels = self.labels
+            
+        if chance is None:
+            chance = (upper-lower) / cm.shape[0]
 
         # Generate plot
         ax = plt.subplot(subplot)
+        ax = sns.heatmap(cm,
+                         center=chance,
+                         vmin=lower,
+                         vmax=upper,
+                         xticklabels=labels,
+                         yticklabels=labels,
+                         # non-arg aesthetics
+                         annot=True,
+                         square=True,
+                         annot_kws={"fontsize":16},
+                         linewidths=.5,
+                         cmap=color_map,
+                         ax=ax)
 
-        plt.imshow(cm, interpolation='nearest',
-                   cmap=color_map, clim=(lower, upper))
+        # Clean up axes
+        plt.ylabel('True Label', fontsize=16)
+        plt.title('Predicted Label', fontsize=16)
+        plt.yticks(rotation=0)
+        plt.tick_params(axis='both', which='major', labelsize=15, labelbottom = False, bottom=False, top = False, labeltop=True, left=False)
 
-        # for font color readability
-        thresh = np.percentile([lower, upper], [25, 75])
-        for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-            if cm[i, j] > thresh[1] or cm[i, j] < thresh[0]:
-                color = 'white'
-            else:
-                color = 'black'
-            ax.text(j, i, format(cm[i, j], '.2f'),
-                    horizontalalignment="center",
-                    color=color,
-                    fontsize=16)
-
-        plt.colorbar()
-        tick_marks = np.arange(len(self.labels))
-        plt.xticks(tick_marks, self.labels)
-        plt.yticks(tick_marks, self.labels)
-        plt.ylabel('True Label', fontsize=14)
-        plt.xlabel('Predicted Label', fontsize=14)
         plt.tight_layout()
-
-        plt.setp(ax.get_xticklabels(), fontsize=14)
-        plt.setp(ax.get_yticklabels(), fontsize=14)
         self.savefig('conf_mat'+subtitle, save=savefig)
         plt.show()
 
