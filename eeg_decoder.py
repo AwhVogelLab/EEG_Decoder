@@ -18,14 +18,14 @@ from statsmodels.stats.multitest import multipletests
 
 
 class Experiment:
-    def __init__(self, experiment_name, data_dir, info_from_file=True, test=False, info_variable_names=['unique_id', 'chan_labels', 'chan_x', 'chan_y', 'chan_z', 'sampling_rate', 'times']):
+    def __init__(self, experiment_name, data_dir, info_from_file=True, dev=False, info_variable_names=['unique_id', 'chan_labels', 'chan_x', 'chan_y', 'chan_z', 'sampling_rate', 'times']):
         """Organizes and loads in EEG, trial labels, behavior, eyetracking, and session data.
 
         Keyword arguments:
         experiment_name -- name of experiment
         data_dir -- directory of data files
         info_from_file -- pull info from 0th info file in data_dir (default True)
-        test -- only use first 3 subjects' data (default False)
+        dev -- development mode: only use first 3 subjects' data (default False)
         info_variable_names -- names of variables to pull from info file
         """
         self.experiment_name = experiment_name
@@ -33,7 +33,7 @@ class Experiment:
 
         self.xdata_files = sorted(list(self.data_dir.glob('*xdata*.mat')))
         self.ydata_files = sorted(list(self.data_dir.glob('*ydata*.mat')))
-        if test:
+        if dev:
             self.xdata_files = self.xdata_files[0:3]
             self.ydata_files = self.ydata_files[0:3]
         self.nsub = len(self.xdata_files)
