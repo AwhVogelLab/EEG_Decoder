@@ -5,6 +5,7 @@ import pandas as pd
 import pickle
 import os
 import matplotlib.pyplot as plt
+import seaborn as sns
 import time
 import itertools
 from copy import deepcopy
@@ -18,22 +19,22 @@ from statsmodels.stats.multitest import multipletests
 
 
 class Experiment:
-    def __init__(self, experiment_name, data_dir, info_from_file=True, test=False, info_variable_names=['unique_id', 'chan_labels', 'chan_x', 'chan_y', 'chan_z', 'sampling_rate', 'times']):
+    def __init__(self, experiment_name, data_dir, info_from_file=True, dev=False, info_variable_names=['unique_id', 'chan_labels', 'chan_x', 'chan_y', 'chan_z', 'sampling_rate', 'times']):
         """Organizes and loads in EEG, trial labels, behavior, eyetracking, and session data.
 
         Keyword arguments:
         experiment_name -- name of experiment
         data_dir -- directory of data files
         info_from_file -- pull info from 0th info file in data_dir (default True)
-        test -- only use first 3 subjects' data (default False)
+        dev -- development mode: only use first 3 subjects' data (default False)
         info_variable_names -- names of variables to pull from info file
         """
         self.experiment_name = experiment_name
         self.data_dir = Path(data_dir)
 
-        self.xdata_files = list(self.data_dir.glob('*xdata*.mat'))
-        self.ydata_files = list(self.data_dir.glob('*ydata*.mat'))
-        if test:
+        self.xdata_files = sorted(list(self.data_dir.glob('*xdata*.mat')))
+        self.ydata_files = sorted(list(self.data_dir.glob('*ydata*.mat')))
+        if dev:
             self.xdata_files = self.xdata_files[0:3]
             self.ydata_files = self.ydata_files[0:3]
         self.nsub = len(self.xdata_files)
@@ -83,7 +84,7 @@ class Experiment:
         remove_artifact_trials -- remove all behavior trials that were excluded from EEG data due to artifacts
         """
         if not self.behavior_files:
-            self.behavior_files = list(self.data_dir.glob('*.csv'))
+            self.behavior_files = sorted(list(self.data_dir.glob('*.csv')))
         behavior = pd.read_csv(self.behavior_files[isub]).to_dict('list')
 
         if remove_artifact_trials:
@@ -105,8 +106,8 @@ class Experiment:
         """
 
         if not self.artifact_idx_files:
-            self.artifact_idx_files = list(
-                self.data_dir.glob('*artifact_idx*.mat'))
+            self.artifact_idx_files = sorted(list(
+                self.data_dir.glob('*artifact_idx*.mat')))
 
         artifact_idx = np.squeeze(sio.loadmat(
             self.artifact_idx_files[isub])['artifact_idx'] == 1)
@@ -122,7 +123,7 @@ class Experiment:
         variable_names -- names of variables to pull from info file
         """
         if not self.info_files:
-            self.info_files = list(self.data_dir.glob('*info*.mat'))
+            self.info_files = sorted(list(self.data_dir.glob('*info*.mat')))
 
         info_file = sio.loadmat(
             self.info_files[isub], variable_names=variable_names)
@@ -931,7 +932,7 @@ class Interpreter:
         """
 
         if filename is None:
-            list_of_files = self.output_dir.glob('*.pickle')
+            list_of_files = sorted(self.output_dir.glob('*.pickle'))
             file_to_open = max(list_of_files, key=os.path.getctime)
             print('No filename provided. Loading most recent results.')
         else:
@@ -1226,49 +1227,52 @@ class Interpreter:
 
         self.savefig('acc'+subtitle, save=savefig)
         plt.show()
-
-    def plot_conf_mat(self, subtitle='', color_map=plt.cm.RdGy_r, lower=0, upper=1, time_idx=None, savefig=False, subplot=111):
+        
+    def plot_confusion_matrix(self, subtitle='', labels=None, earliest_t=200, time_idx=None, lower=0, upper=1, chance=None, savefig=False, subplot=111, color_map=plt.cm.RdGy_r):
         """
         plots the confusion matrix for the classifier
 
         Input:
         self.conf_mat of shape [subjects,timepoints,folds,setsizeA,setsizeB]
         """
+        # Use only relevant time points
         if time_idx is None:
-            time_idx = self.t > 200
+            time_idx = self.t > earliest_t
         cm = np.mean(np.mean(np.mean(self.conf_mat[:, time_idx], 2), 1), 0)
 
         # Normalize
         cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        
+        # Get labels and chance level, if necessary
+        if labels is None:
+            labels = self.labels
+            
+        if chance is None:
+            chance = (upper-lower) / cm.shape[0]
 
         # Generate plot
         ax = plt.subplot(subplot)
+        ax = sns.heatmap(cm,
+                         center=chance,
+                         vmin=lower,
+                         vmax=upper,
+                         xticklabels=labels,
+                         yticklabels=labels,
+                         # non-arg aesthetics
+                         annot=True,
+                         square=True,
+                         annot_kws={"fontsize":16},
+                         linewidths=.5,
+                         cmap=color_map,
+                         ax=ax)
 
-        plt.imshow(cm, interpolation='nearest',
-                   cmap=color_map, clim=(lower, upper))
+        # Clean up axes
+        plt.ylabel('True Label', fontsize=16)
+        plt.title('Predicted Label', fontsize=16)
+        plt.yticks(rotation=0)
+        plt.tick_params(axis='both', which='major', labelsize=15, labelbottom = False, bottom=False, top = False, labeltop=True, left=False)
 
-        # for font color readability
-        thresh = np.percentile([lower, upper], [25, 75])
-        for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
-            if cm[i, j] > thresh[1] or cm[i, j] < thresh[0]:
-                color = 'white'
-            else:
-                color = 'black'
-            ax.text(j, i, format(cm[i, j], '.2f'),
-                    horizontalalignment="center",
-                    color=color,
-                    fontsize=16)
-
-        plt.colorbar()
-        tick_marks = np.arange(len(self.labels))
-        plt.xticks(tick_marks, self.labels)
-        plt.yticks(tick_marks, self.labels)
-        plt.ylabel('True Label', fontsize=14)
-        plt.xlabel('Predicted Label', fontsize=14)
         plt.tight_layout()
-
-        plt.setp(ax.get_xticklabels(), fontsize=14)
-        plt.setp(ax.get_yticklabels(), fontsize=14)
         self.savefig('conf_mat'+subtitle, save=savefig)
         plt.show()
 
