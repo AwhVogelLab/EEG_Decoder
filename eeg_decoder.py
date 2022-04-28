@@ -419,12 +419,12 @@ class Wrangler:
             self.labels = []
             self.num_labels = []
             for group_dict in group_dict_list:
-                labels = [j for i in list(group_dict.values()) for j in i]
+                labels = list(group_dict)
                 self.labels.append(labels)
                 self.num_labels.append(len(labels))
         else:
             if self.group_dict:
-                self.labels = [j for i in list(group_dict.values()) for j in i]
+                self.labels = list(self.group_dict.keys())
             if self.labels:
                 self.num_labels = len(self.labels)
             else:
@@ -434,7 +434,7 @@ class Wrangler:
 
         self.t = samples[0:samples.shape[0] - int(time_window/self.sample_step)+1:int(time_step/self.sample_step)]
 
-    def select_labels(self, xdata, ydata, return_idx=True):
+    def select_labels(self, xdata, ydata, return_idx=False):
         """
         includes labels only wanted for decoding. returns xdata and ydata with unwanted labels removed.
 
@@ -467,11 +467,10 @@ class Wrangler:
         xdata_new = np.ones(xdata.shape)*empty_val
         ydata_new = np.ones(ydata.shape)*empty_val
 
-        for k in self.group_dict.keys():
-            trial_idx = np.arange(ydata.shape[0])[
-                np.isin(ydata, self.group_dict[k])]
+        for i,k in enumerate(self.group_dict.values()):
+            trial_idx = np.arange(ydata.shape[0])[np.isin(ydata, k)]
             xdata_new[trial_idx] = xdata[trial_idx]
-            ydata_new[trial_idx] = k
+            ydata_new[trial_idx] = i
 
         trial_idx = ydata_new == empty_val
         return xdata_new[~trial_idx], ydata_new[~trial_idx]
