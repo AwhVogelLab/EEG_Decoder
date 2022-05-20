@@ -28,10 +28,13 @@ Visualization and statistical testing.
 
 Visualization of EEG data.
 
-## decode_load_1vs3.py
+## decode_load_1vs3.ipynb
 
 Most basic use case for EEG-decoder. Load data from experiment, decode set size 1 vs 3, then plot accuracy and confusion matrix.
 
-## decode_load_cross_experiment.py
+## decode_load_cross_experiment.ipynb
 
 Use the `Experiment_Syncer` class to synchronize subject data across multiple experiments. Also uses `train_test_custom_split`. Train on `Exp1` and `Exp2`, and use that model to decode set size 1 vs 3 in `Exp3`. 
+
+## hyperplane_1vs3_with_2.ipynb
+Use the `train_labels` input to only train on 1 and 3, while testing on 1, 2, and 3. Plot the output of set size 2 trials with the 'plot_hyperplane' function.
