@@ -1,4 +1,5 @@
 from pathlib import Path
+from ssl import ALERT_DESCRIPTION_UNKNOWN_CA
 import scipy.io as sio
 import numpy as np
 import pandas as pd
@@ -382,6 +383,7 @@ class Wrangler:
                  n_splits,
                  group_dict=None,
                  group_dict_list=None,
+                 train_labels=None,
                  test_size = .1,
                  labels=None,
                  electrodes=None,
@@ -397,6 +399,7 @@ class Wrangler:
         n_splits -- number of folds in cross-validation procedure
         group_dict -- trial labels to be grouped together (default None)
         group_dict_list -- list of group_dict for pairwise decoding (default None) 
+        train_labels -- list of labels to include in training (default None)
         test_size -- percent of trials to test (default 0.1)
         labels -- labels to be included in decoding (default None)
         electrodes -- names of electrodes in EEG data (default None)
@@ -411,20 +414,29 @@ class Wrangler:
         self.test_size = test_size
         self.group_dict = group_dict
         self.group_dict_list = group_dict_list
+        self.train_labels = train_labels
         self.labels = labels
         self.electrodes = electrodes
         self.electrode_subset_list = electrode_subset_list
 
         if self.group_dict_list:
             self.labels = []
+            self.label_dict = []
             self.num_labels = []
             for group_dict in group_dict_list:
                 labels = list(group_dict)
                 self.labels.append(labels)
+                label_dict = {}
+                for i, key in enumerate(group_dict.keys()):
+                    label_dict[key] = i
+                self.label_dict.append(label_dict)
                 self.num_labels.append(len(labels))
         else:
             if self.group_dict:
                 self.labels = list(self.group_dict.keys())
+                self.label_dict = {}
+                for i, key in enumerate(group_dict.keys()):
+                    self.label_dict[key] = i
             if self.labels:
                 self.num_labels = len(self.labels)
             else:
@@ -434,17 +446,21 @@ class Wrangler:
 
         self.t = samples[0:samples.shape[0] - int(time_window/self.sample_step)+1:int(time_step/self.sample_step)]
 
-    def select_labels(self, xdata, ydata, return_idx=False):
+    def select_labels(self, xdata, ydata, labels=None, return_idx=False):
         """
         includes labels only wanted for decoding. returns xdata and ydata with unwanted labels removed.
 
         Keyword arguments:
         xdata -- eeg data, shape[electrodes,timepoints,trials]
         ydata -- labels, shape[trials]
+        labels -- list of labels to include
         return_idx -- return index of trials selected
         """
+        
+        if labels is None:
+            labels = self.labels
 
-        label_idx = np.isin(ydata, self.labels)
+        label_idx = np.isin(ydata, labels)
         xdata = xdata[label_idx, :, :]
         ydata = ydata[label_idx]
 
@@ -538,21 +554,37 @@ class Wrangler:
         else:
             return xdata, ydata
 
-    def setup_data(self, xdata, ydata):
+    def bin_data(self, X_train_all, X_test_all, y_train, y_test):
         '''
-        does basic data manipulation using other functions. Pretty much depracated.
+        helper function than does trial binning
 
         Keyword arguments:
-        xdata -- eeg data, shape[electrodes,timepoints,trials]
-        ydata -- labels, shape[trials]
+        X_train_all -- EEG data to be used for training
+        X_test_all -- EEG data to be used for testing
+        y_train -- trial labels for training data
+        y_test -- trial labels for testing data
         '''
-        if self.group_dict:
-            xdata, ydata = self.group_labels(xdata, ydata)
-        elif self.labels:
-            xdata, ydata = self.select_labels(xdata, ydata)
-        xdata, ydata = self.balance_labels(xdata, ydata)
-        xdata, ydata = self.bin_trials(xdata, ydata)
-        return xdata, ydata
+        
+        X_train_all, y_train = self.bin_trials(X_train_all, y_train)
+        X_test_all, y_test = self.bin_trials(X_test_all, y_test)
+
+        return X_train_all, X_test_all, y_train, y_test
+
+    def balance_data(self, X_train_all, X_test_all, y_train, y_test): 
+        '''
+        helper function than does trial binning and balances data
+
+        Keyword arguments:
+        X_train_all -- EEG data to be used for training
+        X_test_all -- EEG data to be used for testing
+        y_train -- trial labels for training data
+        y_test -- trial labels for testing data
+        '''
+
+        X_train_all, y_train = self.balance_labels(X_train_all, y_train)
+        X_test_all, y_test = self.balance_labels(X_test_all, y_test)
+
+        return X_train_all, X_test_all, y_train, y_test
 
     def bin_and_balance_data(self, X_train_all, X_test_all, y_train, y_test): 
         '''
@@ -573,6 +605,21 @@ class Wrangler:
 
         return X_train_all, X_test_all, y_train, y_test
         
+    def select_training_data(self, X_train_all, y_train):
+
+        '''
+        select training data based on self.train_labels
+
+        Keyword arguments:
+        X_train_all -- EEG data to be used for training
+        y_train -- trial labels for training data
+        '''
+
+        # create index for labels from train_labels
+        labels = []
+        [labels.append(self.label_dict[k]) for k in self.train_labels]
+        return self.select_labels(X_train_all, y_train, labels)
+
     def select_electrodes(self, xdata, electrode_subset=None):
         '''
         removes electrodes not included in electrode_subset.
@@ -726,6 +773,7 @@ class Classification:
             (self.nsub, np.size(self.t), self.n_splits))*np.nan
         self.conf_mat = np.zeros((self.nsub, np.size(
             self.t), self.n_splits, self.num_labels, self.num_labels))*np.nan
+        self.confidence_scores = np.empty((self.nsub,len(self.t),self.n_splits,self.num_labels))*np.nan
 
     def standardize(self, X_train, X_test):
         """
@@ -745,7 +793,7 @@ class Classification:
 
     def decode(self, X_train, X_test, y_train, y_test, y_test_shuffle, isub):
         '''
-        does actual training and testing of classifier after standardizing the data. Also does shuffled testing and confusion matrix.
+        does actual training and testing of classifier after standardizing the data. Also does shuffled testing, confusion matrix, and confidence scores.
 
         Keyword arguments:
         X_train -- time slice of EEG data for training
@@ -765,8 +813,13 @@ class Classification:
         self.acc[isub, itime, ifold] = self.classifier.score(X_test, y_test)
         self.acc_shuff[isub, itime, ifold] = self.classifier.score(
             X_test, y_test_shuffle)
+
         self.conf_mat[isub, itime, ifold] = confusion_matrix(
             y_test, y_pred=self.classifier.predict(X_test))
+
+        confidence_scores = self.classifier.decision_function(X_test)
+        for i,ss in enumerate(set(y_test)):
+            self.confidence_scores[isub,itime,ifold,i] = np.mean(confidence_scores[y_test==ss])
 
     def decode_pairwise(self, X_train, X_test, y_train, y_test, y_test_shuffle, isub):
         '''
@@ -879,10 +932,12 @@ class Interpreter:
             self.acc = clfr.acc
             self.acc_shuff = clfr.acc_shuff
             self.conf_mat = clfr.conf_mat
+            self.confidence_scores = clfr.confidence_scores
 
         import matplotlib
         matplotlib.rcParams['font.sans-serif'] = "Arial"
         matplotlib.rcParams['font.family'] = "sans-serif"
+        self.colors = ['royalblue', 'firebrick', 'forestgreen', 'orange', 'purple']
 
         self.timestr = time.strftime("%Y%m%d_%H%M")
         self.subtitle = subtitle
@@ -903,7 +958,7 @@ class Interpreter:
         additional_values -- additional variables to save
         """
         values = ['t', 'time_window', 'time_step', 'trial_bin_size',
-                  'n_splits', 'labels', 'electrodes', 'acc', 'acc_shuff', 'conf_mat']
+                  'n_splits', 'labels', 'electrodes', 'acc', 'acc_shuff', 'conf_mat', 'confidence_scores']
         if additional_values:
             for val in additional_values:
                 values.append(val)
@@ -959,6 +1014,17 @@ class Interpreter:
                 plt.savefig(output, bbox_inches='tight',
                             dpi=1000, format=file[1:])
                 print(f'Saving {output}')
+
+    @staticmethod
+    def get_plot_line(a):
+        """
+        Takes in 2D array of shape [subjects,time points].
+        Returns mean, and upper/lower SEM lines.
+        """
+        mean = np.mean(a,0)
+        sem = sista.sem(a,0)
+        upper,lower = mean + sem, mean - sem
+        return mean, upper, lower
 
     def plot_acc(self, subtitle='', significance_testing=False, stim_time=[0, 250],
                  savefig=False, title=None, ylim=[.18, .55], chance_text_y=.19):
@@ -1053,10 +1119,9 @@ class Interpreter:
         ax.fill_between(stim_time, [stim_lower, stim_lower], [
                         stim_upper, stim_upper], color='gray', alpha=.5)
         ax.plot(self.t, np.ones((len(self.t)))*chance, '--', color='gray')
-        colors = ['royalblue', 'firebrick', 'forestgreen', 'orange', 'purple']
 
         for isubset, subset in enumerate(subset_list):
-            color = colors[isubset]
+            color = self.colors[isubset]
             acc = self.acc[:, isubset]
             acc_shuff = self.acc_shuff[:, isubset]
 
@@ -1144,11 +1209,10 @@ class Interpreter:
         ax.fill_between(stim_time, [stim_lower, stim_lower], [
                         stim_upper, stim_upper], color='gray', alpha=.5)
         ax.plot(self.t, np.ones((len(self.t)))*chance, '--', color='gray')
-        colors = ['royalblue', 'firebrick', 'forestgreen', 'orange', 'purple']
         sig_y = chance-.05
 
         for isubset, subset in enumerate(subset_list):
-            color = colors[isubset]
+            color = self.colors[isubset]
             acc = self.acc[:, isubset]
             acc_shuff = self.acc_shuff[:, isubset]
 
@@ -1273,6 +1337,58 @@ class Interpreter:
 
         plt.tight_layout()
         self.savefig('conf_mat'+subtitle, save=savefig)
+        plt.show()
+    
+    def plot_hyperplane(self, subtitle='', stim_time=[0, 250],
+                        savefig=False, title=None, ylim=[-4,4], legend_title='Trial condition', legend_pos = 'lower right',
+                        label_text_x = -105, label_text_ys = [-3.4,2.8], stim_label_xy = [120,3.5], arrow_ys = [-1.1,1.2]):
+
+        '''
+        Plots the confidence scores of each label.
+        '''
+
+        ax = plt.subplot(111)
+        stim_lower = ylim[0]+.01
+        stim_upper = ylim[1]
+        ax.fill_between(stim_time, [stim_lower, stim_lower], [
+                        stim_upper, stim_upper], color='gray', alpha=.5)
+        ax.plot(self.t,np.zeros((len(self.t))),'--',color='gray')
+
+        for i in range(self.confidence_scores.shape[-1]):
+
+            # Get means for each condition
+            scores = np.mean(self.confidence_scores,2)[:,:,i]
+
+            mean, upper, lower = self.get_plot_line(scores)
+            ax.plot(self.t,mean,self.colors[i],label = self.labels[i])
+            ax.fill_between(self.t,upper,lower, color=self.colors[i],alpha=.5)
+
+        leg = plt.legend(title=legend_title, loc=legend_pos,fontsize=12)
+        plt.setp(leg.get_title(),fontsize=12)
+
+        # aesthetics
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        ax.yaxis.set_ticks_position('left')
+        ax.xaxis.set_ticks_position('bottom')
+        ax.set_yticks([])
+        plt.setp(ax.get_xticklabels(), fontsize=14)
+
+        plt.xlim(-250,max(self.t))
+        plt.ylim(ylim)
+
+        # labelling
+        plt.title(title,fontsize=18)
+        plt.xlabel('Time from stimulus onset (ms)', fontsize=14)
+        plt.ylabel('Distance from hyperplane (a.u.)', fontsize=14)
+        plt.text(label_text_x,label_text_ys[0],f'Predicted\n{self.labels[0]}',fontsize=12,ha='center')
+        plt.text(label_text_x,label_text_ys[1],f'Predicted\n{self.labels[-1]}',fontsize=12,ha='center')
+        plt.text(stim_label_xy[0],stim_label_xy[1],'Stim',fontsize=14,ha='center',c='white')
+        plt.arrow(label_text_x,arrow_ys[0],0,-1,head_width=45, head_length=.25,color='k')
+        plt.arrow(label_text_x,arrow_ys[1],0,1, head_width=45, head_length=.25,color='k')
+
+        plt.tight_layout()
+        self.savefig('hyperplane'+subtitle, save=savefig)
         plt.show()
 
     def temporal_generalizability(self, cmap=plt.cm.viridis, lower_lim=0, upper_lim=1, savefig=False):
