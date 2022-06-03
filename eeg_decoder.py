@@ -1,5 +1,4 @@
 from pathlib import Path
-from ssl import ALERT_DESCRIPTION_UNKNOWN_CA
 import scipy.io as sio
 import numpy as np
 import pandas as pd
@@ -8,11 +7,10 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
-import itertools
 from copy import deepcopy
 import scipy.stats as sista
 
-from sklearn.model_selection import ShuffleSplit, train_test_split
+from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix
 from sklearn.linear_model import LogisticRegression
@@ -442,7 +440,7 @@ class Wrangler:
             else:
                 self.num_labels = None
 
-        self.cross_val = ShuffleSplit(n_splits=self.n_splits, test_size= test_size)
+        self.cross_val = StratifiedShuffleSplit(n_splits=self.n_splits, test_size=test_size)
 
         self.t = samples[0:samples.shape[0] - int(time_window/self.sample_step)+1:int(time_step/self.sample_step)]
 
@@ -597,14 +595,11 @@ class Wrangler:
         y_test -- trial labels for testing data
         '''
         
-        X_train_all, y_train = self.bin_trials(X_train_all, y_train)
-        X_test_all, y_test = self.bin_trials(X_test_all, y_test)
-
-        X_train_all, y_train = self.balance_labels(X_train_all, y_train)
-        X_test_all, y_test = self.balance_labels(X_test_all, y_test)
+        X_train_all, X_test_all, y_train, y_test = self.bin_data(X_train_all, X_test_all, y_train, y_test)
+        X_train_all, X_test_all, y_train, y_test = self.balance_data(X_train_all, X_test_all, y_train, y_test)
 
         return X_train_all, X_test_all, y_train, y_test
-        
+      
     def select_training_data(self, X_train_all, y_train):
 
         '''
@@ -650,27 +645,28 @@ class Wrangler:
         for self.ielec, electrode_subset in enumerate(self.electrode_subset_list):
             yield self.select_electrodes(xdata_all, electrode_subset), ydata_all
 
-    def split_data(self, xdata, ydata, return_idx=False):
+    def bin_and_split_data(self, xdata, ydata):
         """
-        returns xtrain and xtest data and respective labels
+        returns xtrain and xtest data and labels, binned
 
         Keyword arguments:
         xdata -- eeg data, shape[electrodes,timepoints,trials]
         ydata -- labels, shape[trials]
         return_idx -- return index used to select test data (default False)
         """
-        self.ifold = 0
-        for train_index, test_index in self.cross_val.split(xdata[:, 0, 0], ydata):
+        
+        for self.ifold in range(self.n_splits):
+            
+            xdata_binned, ydata_binned = self.bin_trials(xdata, ydata)
+            train_index, test_index = next(self.cross_val.split(xdata_binned[:, 0, 0], ydata_binned))
 
-            X_train_all, X_test_all = xdata[train_index], xdata[test_index]
-            y_train, y_test = ydata[train_index].astype(
-                int), ydata[test_index].astype(int)
+            X_train_all, X_test_all = xdata_binned[train_index], xdata_binned[test_index]
+            y_train, y_test = ydata_binned[train_index].astype(
+                int), ydata_binned[test_index].astype(int)
 
-            if return_idx:
-                yield X_train_all, X_test_all, y_train, y_test, test_index
-            else:
-                yield X_train_all, X_test_all, y_train, y_test
+            yield X_train_all, X_test_all, y_train, y_test
             self.ifold += 1
+
 
     def roll_over_time(self, X_train_all, X_test_all=None):
         """
@@ -714,7 +710,7 @@ class Wrangler:
 
                 yield X_train, X_test
 
-    def train_test_custom_split(self, xdata_train, xdata_test, ydata_train, ydata_test, test_size=.1):
+    def bin_and_custom_split(self, xdata_train, xdata_test, ydata_train, ydata_test, test_size=.1):
         '''
         Takes in train and test data and yields portion of each for purposes of cross-validation.
         Useful if you want data to always be in train, and other data to always be in test.
@@ -727,15 +723,22 @@ class Wrangler:
         ydata_test -- trial labels for test data
         '''
         self.ifold = 0
-        for train_index, _ in self.cross_val.split(xdata_train, ydata_train):
-            X_train_all, y_train = xdata_train[train_index], ydata_train[train_index].astype(
-                int)
+        test_cross_val = StratifiedShuffleSplit(test_size=test_size)
 
-            _, X_test_all, _, y_test = train_test_split(xdata_test, ydata_test, test_size = test_size)
+        for self.ifold in range(self.n_splits):
+            
+            xdata_train_binned, ydata_train_binned = self.bin_trials(xdata_train, ydata_train)
+            xdata_test_binned, ydata_test_binned = self.bin_trials(xdata_test, ydata_test)
+
+            train_index, _ = next(self.cross_val.split(xdata_train_binned[:, 0, 0], ydata_train_binned))
+            _, test_index = next(test_cross_val.split(xdata_test_binned[:, 0, 0], ydata_test_binned))
+
+            X_train_all, X_test_all = xdata_train_binned[train_index], xdata_test_binned[test_index]
+            y_train, y_test = ydata_train_binned[train_index].astype(
+                int), ydata_test_binned[test_index].astype(int)
 
             yield X_train_all, X_test_all, y_train, y_test
             self.ifold += 1
-
 
 class Classification:
 
