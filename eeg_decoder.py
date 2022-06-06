@@ -440,9 +440,6 @@ class Wrangler:
             else:
                 self.num_labels = None
 
-        self.cross_val = StratifiedShuffleSplit(n_splits=self.n_splits, test_size=test_size)
-        self.cross_val = train_test_split
-
         self.t = samples[0:samples.shape[0] - int(time_window/self.sample_step)+1:int(time_step/self.sample_step)]
 
     def select_labels(self, xdata, ydata, labels=None, return_idx=False):
