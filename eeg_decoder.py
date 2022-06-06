@@ -441,6 +441,7 @@ class Wrangler:
                 self.num_labels = None
 
         self.cross_val = StratifiedShuffleSplit(n_splits=self.n_splits, test_size=test_size)
+        self.cross_val = train_test_split
 
         self.t = samples[0:samples.shape[0] - int(time_window/self.sample_step)+1:int(time_step/self.sample_step)]
 
@@ -681,11 +682,7 @@ class Wrangler:
         for self.ifold in range(self.n_splits):
             
             xdata_binned, ydata_binned = self.bin_trials(xdata, ydata)
-            train_index, test_index = next(self.cross_val.split(xdata_binned[:, 0, 0], ydata_binned))
-
-            X_train_all, X_test_all = xdata_binned[train_index], xdata_binned[test_index]
-            y_train, y_test = ydata_binned[train_index].astype(
-                int), ydata_binned[test_index].astype(int)
+            X_train_all, X_test_all, y_train, y_test = train_test_split(xdata_binned,ydata_binned,stratify=ydata_binned)
 
             yield X_train_all, X_test_all, y_train, y_test
             self.ifold += 1
