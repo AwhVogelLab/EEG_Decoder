@@ -1,5 +1,4 @@
 from pathlib import Path
-from ssl import ALERT_DESCRIPTION_UNKNOWN_CA
 import scipy.io as sio
 import numpy as np
 import pandas as pd
@@ -8,11 +7,10 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
-import itertools
 from copy import deepcopy
 import scipy.stats as sista
 
-from sklearn.model_selection import ShuffleSplit, train_test_split
+from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix
 from sklearn.linear_model import LogisticRegression
@@ -442,8 +440,6 @@ class Wrangler:
             else:
                 self.num_labels = None
 
-        self.cross_val = ShuffleSplit(n_splits=self.n_splits, test_size= test_size)
-
         self.t = samples[0:samples.shape[0] - int(time_window/self.sample_step)+1:int(time_step/self.sample_step)]
 
     def select_labels(self, xdata, ydata, labels=None, return_idx=False):
@@ -526,31 +522,54 @@ class Wrangler:
 
         return xdata, ydata
 
-    def bin_trials(self, xdata, ydata):
+    def bin_trials(self, xdata, ydata, permute_trials = True):
         '''
         bins trials based on trial_bin_size
 
         Keyword arguments:
         xdata -- eeg data, shape[electrodes,timepoints,trials]
         ydata -- labels, shape[trials]
+        permute_trials -- shuffle trials before binning to get unique bins each call
         '''
         if self.trial_bin_size:
-            unique_labels, counts_labels = np.unique(ydata, return_counts=True)
-            min_count = np.floor(min(counts_labels) /
-                                 self.trial_bin_size)*self.trial_bin_size
-            nbin = int(min_count/self.trial_bin_size)
-            trial_groups = np.tile(np.arange(nbin), self.trial_bin_size)
+            if permute_trials:
+                p = np.random.permutation(len(ydata))
+                xdata, ydata = xdata[p], ydata[p] 
+               
+            # get labels and counts
+            unique_labels, label_counts = np.unique(ydata, return_counts=True)
 
-            xdata_new = np.zeros(
-                (nbin*len(unique_labels), xdata.shape[1], xdata.shape[2]))
-            count = 0
-            for ilabel in unique_labels:
-                for igroup in np.unique(trial_groups):
-                    xdata_new[count] = np.mean(xdata[ydata == ilabel][:int(
-                        min_count)][trial_groups == igroup], axis=0)
-                    count += 1
-            ydata_new = np.repeat(unique_labels, nbin)
-            return xdata_new, ydata_new
+            # determine number of bins per label
+            n_bins = label_counts//self.trial_bin_size
+            n_trials = n_bins * self.trial_bin_size 
+
+            xdata_bin = []
+            ydata_bin = []
+            # loop through labels
+            for ilabel,label in enumerate(unique_labels):
+
+                # assign each trial of label to bin
+                label_bins = np.tile(np.arange(n_bins[ilabel]),n_trials[ilabel]//n_bins[ilabel])
+                # create label index
+                label_idx = ydata == label
+                # grab data
+                label_data = xdata[label_idx][:n_trials[ilabel]]
+
+                # preallocate
+                bin_average_data = np.empty((n_bins[ilabel],label_data.shape[1],label_data.shape[2])) 
+                # loop though bins
+                for ibin, bin in enumerate(np.unique(label_bins)):
+                    # make bin idx
+                    bin_idx = label_bins == bin
+                    # average over data
+                    bin_average_data[ibin] = np.mean(label_data[bin_idx],0)
+
+                xdata_bin.append(bin_average_data)
+                ydata_bin += [label]*n_bins[ilabel]
+
+            xdata_bin = np.concatenate(xdata_bin)
+            ydata_bin = np.array(ydata_bin)
+            return xdata_bin, ydata_bin
         else:
             return xdata, ydata
 
@@ -597,14 +616,11 @@ class Wrangler:
         y_test -- trial labels for testing data
         '''
         
-        X_train_all, y_train = self.bin_trials(X_train_all, y_train)
-        X_test_all, y_test = self.bin_trials(X_test_all, y_test)
-
-        X_train_all, y_train = self.balance_labels(X_train_all, y_train)
-        X_test_all, y_test = self.balance_labels(X_test_all, y_test)
+        X_train_all, X_test_all, y_train, y_test = self.bin_data(X_train_all, X_test_all, y_train, y_test)
+        X_train_all, X_test_all, y_train, y_test = self.balance_data(X_train_all, X_test_all, y_train, y_test)
 
         return X_train_all, X_test_all, y_train, y_test
-        
+      
     def select_training_data(self, X_train_all, y_train):
 
         '''
@@ -650,27 +666,24 @@ class Wrangler:
         for self.ielec, electrode_subset in enumerate(self.electrode_subset_list):
             yield self.select_electrodes(xdata_all, electrode_subset), ydata_all
 
-    def split_data(self, xdata, ydata, return_idx=False):
+    def bin_and_split_data(self, xdata, ydata):
         """
-        returns xtrain and xtest data and respective labels
+        returns xtrain and xtest data and labels, binned
 
         Keyword arguments:
         xdata -- eeg data, shape[electrodes,timepoints,trials]
         ydata -- labels, shape[trials]
         return_idx -- return index used to select test data (default False)
         """
-        self.ifold = 0
-        for train_index, test_index in self.cross_val.split(xdata[:, 0, 0], ydata):
+        
+        for self.ifold in range(self.n_splits):
+            
+            xdata_binned, ydata_binned = self.bin_trials(xdata, ydata)
+            X_train_all, X_test_all, y_train, y_test = train_test_split(xdata_binned,ydata_binned,stratify=ydata_binned)
 
-            X_train_all, X_test_all = xdata[train_index], xdata[test_index]
-            y_train, y_test = ydata[train_index].astype(
-                int), ydata[test_index].astype(int)
-
-            if return_idx:
-                yield X_train_all, X_test_all, y_train, y_test, test_index
-            else:
-                yield X_train_all, X_test_all, y_train, y_test
+            yield X_train_all, X_test_all, y_train, y_test
             self.ifold += 1
+
 
     def roll_over_time(self, X_train_all, X_test_all=None):
         """
@@ -714,7 +727,7 @@ class Wrangler:
 
                 yield X_train, X_test
 
-    def train_test_custom_split(self, xdata_train, xdata_test, ydata_train, ydata_test, test_size=.1):
+    def bin_and_custom_split(self, xdata_train, xdata_test, ydata_train, ydata_test, test_size=.1):
         '''
         Takes in train and test data and yields portion of each for purposes of cross-validation.
         Useful if you want data to always be in train, and other data to always be in test.
@@ -727,15 +740,22 @@ class Wrangler:
         ydata_test -- trial labels for test data
         '''
         self.ifold = 0
-        for train_index, _ in self.cross_val.split(xdata_train, ydata_train):
-            X_train_all, y_train = xdata_train[train_index], ydata_train[train_index].astype(
-                int)
+        test_cross_val = StratifiedShuffleSplit(test_size=test_size)
 
-            _, X_test_all, _, y_test = train_test_split(xdata_test, ydata_test, test_size = test_size)
+        for self.ifold in range(self.n_splits):
+            
+            xdata_train_binned, ydata_train_binned = self.bin_trials(xdata_train, ydata_train)
+            xdata_test_binned, ydata_test_binned = self.bin_trials(xdata_test, ydata_test)
+
+            train_index, _ = next(self.cross_val.split(xdata_train_binned[:, 0, 0], ydata_train_binned))
+            _, test_index = next(test_cross_val.split(xdata_test_binned[:, 0, 0], ydata_test_binned))
+
+            X_train_all, X_test_all = xdata_train_binned[train_index], xdata_test_binned[test_index]
+            y_train, y_test = ydata_train_binned[train_index].astype(
+                int), ydata_test_binned[test_index].astype(int)
 
             yield X_train_all, X_test_all, y_train, y_test
             self.ifold += 1
-
 
 class Classification:
 
