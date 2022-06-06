@@ -524,31 +524,54 @@ class Wrangler:
 
         return xdata, ydata
 
-    def bin_trials(self, xdata, ydata):
+    def bin_trials(self, xdata, ydata, permute_trials = True):
         '''
         bins trials based on trial_bin_size
 
         Keyword arguments:
         xdata -- eeg data, shape[electrodes,timepoints,trials]
         ydata -- labels, shape[trials]
+        permute_trials -- shuffle trials before binning to get unique bins each call
         '''
         if self.trial_bin_size:
-            unique_labels, counts_labels = np.unique(ydata, return_counts=True)
-            min_count = np.floor(min(counts_labels) /
-                                 self.trial_bin_size)*self.trial_bin_size
-            nbin = int(min_count/self.trial_bin_size)
-            trial_groups = np.tile(np.arange(nbin), self.trial_bin_size)
+            if permute_trials:
+                p = np.random.permutation(len(ydata))
+                xdata, ydata = xdata[p], ydata[p] 
+               
+            # get labels and counts
+            unique_labels, label_counts = np.unique(ydata, return_counts=True)
 
-            xdata_new = np.zeros(
-                (nbin*len(unique_labels), xdata.shape[1], xdata.shape[2]))
-            count = 0
-            for ilabel in unique_labels:
-                for igroup in np.unique(trial_groups):
-                    xdata_new[count] = np.mean(xdata[ydata == ilabel][:int(
-                        min_count)][trial_groups == igroup], axis=0)
-                    count += 1
-            ydata_new = np.repeat(unique_labels, nbin)
-            return xdata_new, ydata_new
+            # determine number of bins per label
+            n_bins = label_counts//self.trial_bin_size
+            n_trials = n_bins * self.trial_bin_size 
+
+            xdata_bin = []
+            ydata_bin = []
+            # loop through labels
+            for ilabel,label in enumerate(unique_labels):
+
+                # assign each trial of label to bin
+                label_bins = np.tile(np.arange(n_bins[ilabel]),n_trials[ilabel]//n_bins[ilabel])
+                # create label index
+                label_idx = ydata == label
+                # grab data
+                label_data = xdata[label_idx][:n_trials[ilabel]]
+
+                # preallocate
+                bin_average_data = np.empty((n_bins[ilabel],label_data.shape[1],label_data.shape[2])) 
+                # loop though bins
+                for ibin, bin in enumerate(np.unique(label_bins)):
+                    # make bin idx
+                    bin_idx = label_bins == bin
+                    # average over data
+                    bin_average_data[ibin] = np.mean(label_data[bin_idx],0)
+
+                xdata_bin.append(bin_average_data)
+                ydata_bin += [label]*n_bins[ilabel]
+
+            xdata_bin = np.concatenate(xdata_bin)
+            ydata_bin = np.array(ydata_bin)
+            return xdata_bin, ydata_bin
         else:
             return xdata, ydata
 
