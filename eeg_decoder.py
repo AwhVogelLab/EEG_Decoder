@@ -677,13 +677,11 @@ class Wrangler:
         """
         
         for self.ifold in range(self.n_splits):
-            
+            print(self.ifold) 
             xdata_binned, ydata_binned = self.bin_trials(xdata, ydata)
             X_train_all, X_test_all, y_train, y_test = train_test_split(xdata_binned,ydata_binned,stratify=ydata_binned)
 
             yield X_train_all, X_test_all, y_train, y_test
-            self.ifold += 1
-
 
     def roll_over_time(self, X_train_all, X_test_all=None):
         """
@@ -750,7 +748,6 @@ class Wrangler:
             X_train_all, X_test_all, y_train, y_test = train_test_split(xdata_test_binned,ydata_test_binned,stratify=ydata_test_binned,test_size=test_size)
 
             yield X_train_all, X_test_all, y_train, y_test
-            self.ifold += 1
 
 class Classification:
 
