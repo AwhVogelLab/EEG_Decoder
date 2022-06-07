@@ -740,19 +740,14 @@ class Wrangler:
         ydata_test -- trial labels for test data
         '''
         self.ifold = 0
-        test_cross_val = StratifiedShuffleSplit(test_size=test_size)
 
         for self.ifold in range(self.n_splits):
             
             xdata_train_binned, ydata_train_binned = self.bin_trials(xdata_train, ydata_train)
             xdata_test_binned, ydata_test_binned = self.bin_trials(xdata_test, ydata_test)
 
-            train_index, _ = next(self.cross_val.split(xdata_train_binned[:, 0, 0], ydata_train_binned))
-            _, test_index = next(test_cross_val.split(xdata_test_binned[:, 0, 0], ydata_test_binned))
-
-            X_train_all, X_test_all = xdata_train_binned[train_index], xdata_test_binned[test_index]
-            y_train, y_test = ydata_train_binned[train_index].astype(
-                int), ydata_test_binned[test_index].astype(int)
+            X_train_all, X_test_all, y_train, y_test = train_test_split(xdata_train_binned,ydata_train_binned,stratify=ydata_train_binned)
+            X_train_all, X_test_all, y_train, y_test = train_test_split(xdata_test_binned,ydata_test_binned,stratify=ydata_test_binned,test_size=test_size)
 
             yield X_train_all, X_test_all, y_train, y_test
             self.ifold += 1
