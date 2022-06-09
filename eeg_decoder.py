@@ -18,7 +18,11 @@ from statsmodels.stats.multitest import multipletests
 
 
 class Experiment:
-    def __init__(self, experiment_name, data_dir, info_from_file=True, dev=False, info_variable_names=['unique_id', 'chan_labels', 'chan_x', 'chan_y', 'chan_z', 'sampling_rate', 'times']):
+    def __init__(
+        self, experiment_name, data_dir, info_from_file=True, dev=False, 
+        info_variable_names=['unique_id', 'chan_labels', 'chan_x', 'chan_y', 'chan_z', 'sampling_rate', 'times'],
+        trim_timepoints = None
+        ):
         """Organizes and loads in EEG, trial labels, behavior, eyetracking, and session data.
 
         Keyword arguments:
@@ -27,9 +31,11 @@ class Experiment:
         info_from_file -- pull info from 0th info file in data_dir (default True)
         dev -- development mode: only use first 3 subjects' data (default False)
         info_variable_names -- names of variables to pull from info file
+        trim_timepoints -- trims info.times and all loaded EEG data
         """
         self.experiment_name = experiment_name
         self.data_dir = Path(data_dir)
+        self.trim_idx = None 
 
         self.xdata_files = sorted(list(self.data_dir.glob('*xdata*.mat')))
         self.ydata_files = sorted(list(self.data_dir.glob('*ydata*.mat')))
@@ -46,6 +52,11 @@ class Experiment:
             self.info = self.load_info(0, info_variable_names)
             self.info.pop('unique_id')
 
+            if trim_timepoints:
+                self.trim_idx = (self.info['times']>=trim_timepoints[0])&(self.info['times']<=trim_timepoints[1])
+                self.info['original_times'] = self.info['times']
+                self.info['times'] = self.info['times'][self.trim_idx]
+
     def load_eeg(self, isub):
         """
         loads xdata (eeg data) and ydata (trial labels) from .mat
@@ -56,6 +67,9 @@ class Experiment:
         subj_mat = sio.loadmat(
             self.xdata_files[isub], variable_names=['xdata'])
         xdata = np.moveaxis(subj_mat['xdata'], [0, 1, 2], [1, 2, 0])
+        
+        if self.trim_idx is not None:
+            xdata = xdata[:,:,self.trim_idx]
 
         ydata = self.load_ydata(isub)
 
@@ -677,7 +691,6 @@ class Wrangler:
         """
         
         for self.ifold in range(self.n_splits):
-            print(self.ifold) 
             xdata_binned, ydata_binned = self.bin_trials(xdata, ydata)
             X_train_all, X_test_all, y_train, y_test = train_test_split(xdata_binned,ydata_binned,stratify=ydata_binned)
 
