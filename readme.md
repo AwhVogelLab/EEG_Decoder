@@ -2,6 +2,9 @@
 
 This is a (hopefully) flexible package for decoding epoched EEG data in Python.  It includes support for loading and managing EEG data (in .mat format), processing epoched data, cross validation, classification, and visualization with statistical testing. While most of the functionality is geared towards within-subject, timepoint by timepoint analyses, this package also supports cross-session and cross-subject classification. While this is primarily meant to be useful for members of the Awh/Vogel Lab, we hope that it is general for use by others. This package is currently being developed, use at your own risk! Always check your code, look up functions, and reach out to us if you have questions!
 
+Additionally, it should support representational similarity analysis (RSA) using crossnobis distance metrics, as well as support fitting and visualizing custom models, as well as using these distances as inputs for a MDS projection
+
+
 ## eeg_decoder.py
 
 ### `Experiment`
@@ -27,6 +30,26 @@ Visualization and statistical testing.
 ### `ERP`
 
 Visualization of EEG data.
+
+## similarity_analyses.py
+
+### `RDMFileHandler`
+
+Handles saving and reading RDM data as a hdf5 file. Largely used by other classes
+
+### `Crossnobis`
+
+Handles calculation of pairwise crossnobis distances between conditions.  
+Calculates within subject and timepoint
+
+### `RSA`
+
+Handles fitting of theoretical models to the empirical RDM, as well as visualizations (within and across timepoints)
+
+### `MDS`
+
+Calculates and visualizes MDS projections from crossnobis distances. Also supports making animated gifs.
+
 
 ## decode_load_1vs3.ipynb
 
