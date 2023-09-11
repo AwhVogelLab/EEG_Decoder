@@ -258,7 +258,7 @@ class RSA:
         times: list of each timepoint that RDMs were calculated at
         file: file where RDMs are stored
         delay_period start: beginning of delay period (for averaging)
-        theoretical models: dict of RDMs per model
+        theoretical models: dict of RDMs per model. 
 
         """
         self.labels = condition_labels
@@ -334,8 +334,9 @@ class RSA:
                     submodel_r2 = LinearRegression().fit(np.delete(ranked_vals, col, axis=1),
                                                          curr_dists).score(np.delete(ranked_vals, col, axis=1), curr_dists)
                     # Fit a linear regression model without the current factor and calculate the R-squared
-                    r_scores[col][t] = np.sqrt(
-                        full_r2 - submodel_r2) * np.sign(fitted_lm.coef_[col])
+                    r_scores[col][t] = np.sqrt(np.abs(
+                        full_r2 - submodel_r2)) * np.sign(fitted_lm.coef_[col])
+                    # takes absolute value before sqrt to avoid issues with submodel_r2 being bigger than full_r2
                     # Calculate the partial correlation and store it in r_scores
 
                 r_scores[ranked_vals.shape[1]][t] = np.sqrt(full_r2)
@@ -452,7 +453,7 @@ class RSA:
         plt.hlines(0, xmin=-.5, xmax=3.5, color='black',
                    linestyle='--')  # 0 line
         ax = sns.barplot(data=delay_summary_df, x='factor', y='semipartial correlation',
-                         ci=68, palette=self.color_palette, order=fac_order)  # plot correlations
+                         errorbar=('ci', 68), palette=self.color_palette, order=fac_order)  # plot correlations
 
         # significance testing
         for i, factor in enumerate(fac_order):
