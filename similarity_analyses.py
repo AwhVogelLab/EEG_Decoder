@@ -336,7 +336,6 @@ class RSA:
                     # Fit a linear regression model without the current factor and calculate the R-squared
                     r_scores[col][t] = np.sqrt(np.abs(
                         full_r2 - submodel_r2)) * np.sign(fitted_lm.coef_[col])
-                    # takes absolute value before sqrt to avoid issues with submodel_r2 being bigger than full_r2
                     # Calculate the partial correlation and store it in r_scores
 
                 r_scores[ranked_vals.shape[1]][t] = np.sqrt(full_r2)
