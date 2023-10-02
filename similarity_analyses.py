@@ -8,6 +8,8 @@ import pandas as pd
 import scipy.stats as sista
 import seaborn as sns
 import tqdm
+import re
+
 from matplotlib.animation import FuncAnimation, PillowWriter
 from mne.parallel import parallel_func
 from sklearn.covariance import LedoitWolf
@@ -16,7 +18,9 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.preprocessing import LabelEncoder
 from statsmodels.stats.multitest import multipletests
 from statsmodels.stats.outliers_influence import variance_inflation_factor
-warnings.filterwarnings('always', 'Warning', RuntimeWarning) # include runtime warnings
+warnings.filterwarnings('always', 'Warning',  ) # include runtime warnings
+from mne import set_log_level
+set_log_level('WARNING') # suppress text from parallel_func
 
 
 class RDMFileHandler:
@@ -117,8 +121,33 @@ class Crossnobis:
         '''
 
         self.exp = exp
+
+        # compatibility checks
+
+        if callable(getattr(exp,'load_subject',None)):
+            self.loader = exp.load_subject
+        elif callable(getattr(exp,'load_eeg',None)):
+            self.loader = exp.load_eeg
+        else:
+            raise ValueError('Cannot find data loader')
+
+        if hasattr(exp,'times'):
+            times = exp.times
+        elif hasattr(exp,'info["times"]'):
+            times = exp.info["times"]
+
+        if hasattr(exp,'subs'):
+            self.subs = exp.subs
+        else:
+            if hasattr(exp,'xdata_files'):
+                self.subs = [re.search(r'\d\d(?=_)',str(f)).group(0) for f in exp.xdata_files] # find 2 digit subject codes
+            else:
+                raise ValueError('exp.subs or exp.xdata_files not found')
+
+        
+
         self.nsub = exp.nsub
-        self.times = exp.times
+        self.times = times
         self.n_jobs = n_jobs
         self.labels = list(condition_dict.keys())
         self.conditions = list(condition_dict.values())
@@ -126,7 +155,7 @@ class Crossnobis:
         self.t_win = t_win
         self.n_splits = n_splits
         # Calculate the number of time steps per 20ms
-        t_step_ms = int(t_step//(exp.times[1]-exp.times[0]))
+        t_step_ms = int(t_step//(times[1]-times[0]))
         self.t = exp.times.astype(int)[t_step_ms:-t_step_ms:t_step_ms]
 
         self.f = RDMFileHandler(file=file)
@@ -231,7 +260,7 @@ class Crossnobis:
             # if it exists already then skip this subject
             if not overwrite and self.exp.subs[isub] in self.f.subs:
                 continue
-            xdata, sub_condition = self.exp.load_subject(isub)
+            xdata, sub_condition = self.loader(isub)
 
             # Average the EEG data within the time window and store it in xdata_time_binned
             xdata_time_binned = np.zeros(
@@ -246,7 +275,7 @@ class Crossnobis:
             sub_rdm = self.crossnobis(xdata_time_binned, sub_condition,
                                       self.conditions, n_splits=self.n_splits, n_jobs=self.n_jobs)
             self.f.write_subject(
-                sub_rdm, self.exp.subs[isub], overwrite=overwrite)
+                sub_rdm, self.subs[isub], overwrite=overwrite)
 
 
 class RSA:
@@ -458,7 +487,7 @@ class RSA:
             x = delay_summary_df.query(f'factor=="{factor}"')[
                 'semipartial correlation'].values
             # wilcoxcon rank-signed test
-            w, p = sista.wilcoxon(x=x, nan_policy='omit')
+            w, p = sista.wilcoxon(x=x, nan_policy='omit',alternative='greater')
             if any(np.isnan(x)):
                 warnings.warn(
                     'Warning: Partial correlations contain nans. Check your data', RuntimeWarning)
@@ -512,7 +541,7 @@ class RSA:
 
             x = delay_summary_df.query(f'factor=="{factor}"')[
                 'correlation'].values
-            w, p = sista.wilcoxon(x=x)
+            w, p = sista.wilcoxon(x=x,alternative='greater')
             print(factor, np.mean(x), w, p)
             plt.scatter(i, y_sig, alpha=0)
 
@@ -565,17 +594,17 @@ class RSA:
         for factor in factors:
             tmp_df = self.partial_r_df.query(f'factor=="{factor}"')
             p_values = []
-            for t in tmp_df.timepoint.unique():
+            for t in self.t[self.t > 0]:
                 x = tmp_df[tmp_df['timepoint'] ==
                            t]['semipartial correlation'].values
-                _, p = sista.wilcoxon(x=x, nan_policy='omit')
+                _, p = sista.wilcoxon(x=x, nan_policy='omit',alternative='greater')
                 p_values.append(p)
             # correct for n_timepoints comparisons
             _, corrected_p, _, _ = multipletests(p_values, method='fdr_bh')
 
             sig05 = corrected_p < 0.05
 
-            ax.scatter(self.t[sig05], np.ones(sum(sig05))*(sig_y),
+            ax.scatter(self.t[self.t > 0][sig05], np.ones(sum(sig05))*(sig_y),
                        marker='s', s=10, color=self.color_palette[factor])  # mark significant points on axis
             sig_y -= 0.05
             ax.get_legend().set_title(None)  # remove legend title because it gets in the way
@@ -664,15 +693,18 @@ class MDS:
                 raise RuntimeError(
                     f'Stress for MDS projection {self.mds.stress_} is above threshold {self.stress_thresh}')
 
-    def calculate_MDS(self, t_start=500, t_stop=1500):
+    def calculate_MDS(self, t_start=500, t_stop=1500,isub=None):
         """
         Helper function to calculate MDS projections in a certain range.
         Arguments:
         t_start,t_stop: define window to average over
 
         """
-        tsub_rdm = self.rdms[..., np.logical_and(self.t >= t_start, self.t <= t_stop)].mean(
-            (0, 3))  # average over subjects and times
+        if isub is None:
+            tsub_rdm = self.rdms[..., np.logical_and(self.t >= t_start, self.t <= t_stop)].mean(
+                (0, 3))  # average over subjects and times
+        else:
+            tsub_rdm = self.rdms[isub,:,:,np.logical_and(self.t >= t_start, self.t <= t_stop)].mean(0)
         transform = self.mds.fit_transform(tsub_rdm)  # apply MDS scaling
         self.check_stress()
         self.stress_log.append(self.mds.stress_)  # helpful for debugging
@@ -684,7 +716,7 @@ class MDS:
         else:  # otherwise return a tuple
             return transform
 
-    def plot_MDS(self, ax=None, t_start=500, t_stop=1800, title=None, xlim=None, ylim=None, hide_axes: bool = True, circwidth: int = 300):
+    def plot_MDS(self, ax=None, t_start=500, t_stop=1800, title=None, xlim=None, ylim=None, hide_axes: bool = True, circwidth: int = 300,isub = None):
         """
         Displays MDS projection, and labels each condition
         Arguments:
@@ -697,7 +729,7 @@ class MDS:
         """
         if ax is None:
             _, ax = plt.subplots()
-        x, y = self.calculate_MDS(t_start, t_stop)
+        x, y = self.calculate_MDS(t_start, t_stop,isub=isub)
         ax.scatter(x, y, facecolors='none', edgecolors='black',
                    s=circwidth)  # draws circles centered at points
         for i, label in enumerate(self.labels):
